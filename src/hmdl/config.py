@@ -10,12 +10,13 @@ from typing import Optional, Dict, Any
 @dataclass
 class HeimdallConfig:
     """Configuration for the Heimdall observability client.
-    
+
     Attributes:
         api_key: API key for authenticating with Heimdall platform.
         endpoint: The Heimdall platform endpoint URL.
         service_name: Name of the service being instrumented.
         environment: Deployment environment (e.g., 'production', 'staging').
+        project_id: Project ID to associate traces with in Heimdall.
         enabled: Whether tracing is enabled.
         debug: Enable debug logging.
         batch_size: Number of spans to batch before sending.
@@ -23,7 +24,7 @@ class HeimdallConfig:
         max_queue_size: Maximum number of spans to queue.
         metadata: Additional metadata to attach to all spans.
     """
-    
+
     api_key: Optional[str] = field(
         default_factory=lambda: os.environ.get("HEIMDALL_API_KEY")
     )
@@ -37,6 +38,9 @@ class HeimdallConfig:
     )
     environment: str = field(
         default_factory=lambda: os.environ.get("HEIMDALL_ENVIRONMENT", "development")
+    )
+    project_id: str = field(
+        default_factory=lambda: os.environ.get("HEIMDALL_PROJECT_ID", "default")
     )
     enabled: bool = field(
         default_factory=lambda: os.environ.get("HEIMDALL_ENABLED", "true").lower() == "true"

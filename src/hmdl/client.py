@@ -93,6 +93,7 @@ class HeimdallClient:
         resource = Resource.create({
             SERVICE_NAME: self.config.service_name,
             HeimdallAttributes.HEIMDALL_ENVIRONMENT: self.config.environment,
+            HeimdallAttributes.HEIMDALL_PROJECT_ID: self.config.project_id,
         })
         
         # Create tracer provider

@@ -17,9 +17,18 @@ pip install hmdl
 ### 1. Set up environment variables
 
 ```bash
-export HEIMDALL_API_KEY="your-api-key"
-export HEIMDALL_ENDPOINT="https://api.heimdall.dev"  # or your self-hosted instance
+# Required for local development
+export HEIMDALL_ENDPOINT="http://localhost:4318"  # Your Heimdall backend
+export HEIMDALL_PROJECT_ID="your-project-id"      # From Heimdall Settings page
+export HEIMDALL_ENABLED="true"
+
+# Optional
 export HEIMDALL_SERVICE_NAME="my-mcp-server"
+export HEIMDALL_ENVIRONMENT="development"
+
+# For production (with API key)
+export HEIMDALL_API_KEY="your-api-key"
+export HEIMDALL_ENDPOINT="https://api.heimdall.dev"
 ```
 
 ### 2. Initialize the client
@@ -32,10 +41,10 @@ client = HeimdallClient()
 
 # Or with explicit configuration
 client = HeimdallClient(
-    api_key="your-api-key",
-    endpoint="https://api.heimdall.dev",
+    endpoint="http://localhost:4318",
+    project_id="your-project-id",
     service_name="my-mcp-server",
-    environment="production"
+    environment="development"
 )
 ```
 
@@ -89,14 +98,25 @@ async def async_search(query: str) -> list:
 
 | Environment Variable | Description | Default |
 |---------------------|-------------|---------|
-| `HEIMDALL_API_KEY` | API key for authentication | Required |
-| `HEIMDALL_ENDPOINT` | Heimdall platform URL | `https://api.heimdall.dev` |
+| `HEIMDALL_ENDPOINT` | Heimdall backend URL | `http://localhost:4318` |
+| `HEIMDALL_PROJECT_ID` | Project ID (from Settings page) | `default` |
+| `HEIMDALL_ENABLED` | Enable/disable tracing | `true` |
 | `HEIMDALL_SERVICE_NAME` | Service name for traces | `mcp-server` |
 | `HEIMDALL_ENVIRONMENT` | Deployment environment | `development` |
-| `HEIMDALL_ENABLED` | Enable/disable tracing | `true` |
+| `HEIMDALL_API_KEY` | API key (optional for local dev) | - |
 | `HEIMDALL_DEBUG` | Enable debug logging | `false` |
 | `HEIMDALL_BATCH_SIZE` | Spans per batch | `100` |
 | `HEIMDALL_FLUSH_INTERVAL_MS` | Flush interval (ms) | `5000` |
+
+### Local Development
+
+For local development, you don't need an API key. Just set:
+
+```bash
+export HEIMDALL_ENDPOINT="http://localhost:4318"
+export HEIMDALL_PROJECT_ID="your-project-id"  # Copy from Settings page
+export HEIMDALL_ENABLED="true"
+```
 
 ## Advanced Usage
 

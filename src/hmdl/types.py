@@ -101,6 +101,7 @@ class HeimdallAttributes:
     HEIMDALL_USER_ID = "heimdall.user_id"
     HEIMDALL_ENVIRONMENT = "heimdall.environment"
     HEIMDALL_SERVICE_NAME = "heimdall.service_name"
+    HEIMDALL_PROJECT_ID = "heimdall.project_id"
     
     # Status and error attributes
     STATUS = "heimdall.status"

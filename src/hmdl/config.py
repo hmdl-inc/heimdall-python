@@ -57,11 +57,7 @@ class HeimdallConfig:
     
     def validate(self) -> None:
         """Validate the configuration."""
-        if self.enabled and not self.api_key:
-            raise ValueError(
-                "HEIMDALL_API_KEY is required when tracing is enabled. "
-                "Set the environment variable or pass api_key to HeimdallConfig."
-            )
+        # API key is optional for local development
         if self.batch_size < 1:
             raise ValueError("batch_size must be at least 1")
         if self.flush_interval_ms < 100:

@@ -10,7 +10,7 @@ from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.resources import Resource, SERVICE_NAME
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 
 from hmdl.config import HeimdallConfig
 from hmdl.types import HeimdallAttributes
@@ -98,13 +98,17 @@ class HeimdallClient:
         # Create tracer provider
         self._provider = TracerProvider(resource=resource)
         
-        # Set up OTLP exporter
+        # Set up OTLP HTTP exporter
         otlp_endpoint = f"{self.config.endpoint}/v1/traces"
-        headers = {"Authorization": f"Bearer {self.config.api_key}"}
-        
+
+        # Only add auth header if API key is provided
+        headers = {}
+        if self.config.api_key:
+            headers["Authorization"] = f"Bearer {self.config.api_key}"
+
         exporter = OTLPSpanExporter(
             endpoint=otlp_endpoint,
-            headers=headers,
+            headers=headers if headers else None,
         )
         
         # Add batch processor for efficient span export

@@ -41,11 +41,11 @@ class TestHeimdallConfig:
         assert config.endpoint == "https://test.heimdall.dev"
 
     def test_validate_missing_api_key(self):
-        """Test validation fails when API key is missing and enabled."""
+        """Test validation passes when API key is missing (optional for local dev)."""
         config = HeimdallConfig(api_key=None, enabled=True)
-        
-        with pytest.raises(ValueError, match="HEIMDALL_API_KEY is required"):
-            config.validate()
+
+        # API key is now optional for local development
+        config.validate()  # Should not raise
 
     def test_validate_invalid_batch_size(self):
         """Test validation fails for invalid batch size."""

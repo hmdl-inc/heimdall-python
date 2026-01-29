@@ -15,6 +15,10 @@ from hmdl.types import HeimdallAttributes, SpanKind, SpanStatus
 
 F = TypeVar("F", bound=Callable[..., Any])
 
+# Type alias for user extractor function
+# Takes (args, kwargs) and returns user ID string or None
+UserExtractor = Callable[[tuple, dict], Optional[str]]
+
 
 def _serialize_value(value: Any) -> str:
     """Safely serialize a value to string for span attributes."""
@@ -30,52 +34,78 @@ def _get_client() -> Any:
     return HeimdallClient.get_instance()
 
 
+def _extract_user_id(
+    args: tuple,
+    kwargs: dict,
+    user_extractor: Optional[UserExtractor],
+) -> str:
+    """Extract user ID using the extractor callback, falling back to 'anonymous'."""
+    user_id = "anonymous"
+    if user_extractor:
+        try:
+            extracted = user_extractor(args, kwargs)
+            if extracted:
+                user_id = extracted
+        except Exception:
+            # Ignore extraction errors, use "anonymous"
+            pass
+    return user_id
+
+
 def _create_span_decorator(
     span_kind: SpanKind,
     name_attr: str,
     args_attr: str,
     result_attr: str,
-) -> Callable[[Optional[str]], Callable[[F], F]]:
+) -> Callable[..., Callable[[F], F]]:
     """Factory for creating MCP-specific decorators."""
-    
-    def decorator(name: Optional[str] = None) -> Callable[[F], F]:
+
+    def decorator(
+        name: Optional[str] = None,
+        *,
+        user_extractor: Optional[UserExtractor] = None,
+    ) -> Callable[[F], F]:
         def wrapper(func: F) -> F:
             span_name = name or func.__name__
             is_async = inspect.iscoroutinefunction(func)
-            
+
             if is_async:
                 @functools.wraps(func)
                 async def async_wrapped(*args: Any, **kwargs: Any) -> Any:
                     client = _get_client()
                     if client is None:
                         return await func(*args, **kwargs)
-                    
+
                     tracer = client.tracer
                     with tracer.start_as_current_span(
                         name=span_name,
                         kind=trace.SpanKind.SERVER,
                     ) as span:
                         start_time = time.perf_counter()
-                        
+
                         # Set input attributes
                         span.set_attribute(name_attr, span_name)
                         span.set_attribute("heimdall.span_kind", span_kind.value)
-                        
+
+                        # Extract user ID - try user_extractor first, fallback to "anonymous"
+                        user_id = _extract_user_id(args, kwargs, user_extractor)
+                        span.set_attribute(HeimdallAttributes.HEIMDALL_USER_ID, user_id)
+
                         # Capture arguments
                         try:
                             all_args = _capture_arguments(func, args, kwargs)
                             span.set_attribute(args_attr, _serialize_value(all_args))
                         except Exception:
                             pass
-                        
+
                         try:
                             result = await func(*args, **kwargs)
-                            
+
                             # Set output attributes
                             span.set_attribute(result_attr, _serialize_value(result))
                             span.set_attribute(HeimdallAttributes.STATUS, SpanStatus.OK.value)
                             span.set_status(Status(StatusCode.OK))
-                            
+
                             return result
                         except Exception as e:
                             _record_error(span, e)
@@ -83,7 +113,7 @@ def _create_span_decorator(
                         finally:
                             duration_ms = (time.perf_counter() - start_time) * 1000
                             span.set_attribute(HeimdallAttributes.DURATION_MS, duration_ms)
-                
+
                 return async_wrapped  # type: ignore
             else:
                 @functools.wraps(func)
@@ -91,33 +121,37 @@ def _create_span_decorator(
                     client = _get_client()
                     if client is None:
                         return func(*args, **kwargs)
-                    
+
                     tracer = client.tracer
                     with tracer.start_as_current_span(
                         name=span_name,
                         kind=trace.SpanKind.SERVER,
                     ) as span:
                         start_time = time.perf_counter()
-                        
+
                         # Set input attributes
                         span.set_attribute(name_attr, span_name)
                         span.set_attribute("heimdall.span_kind", span_kind.value)
-                        
+
+                        # Extract user ID - try user_extractor first, fallback to "anonymous"
+                        user_id = _extract_user_id(args, kwargs, user_extractor)
+                        span.set_attribute(HeimdallAttributes.HEIMDALL_USER_ID, user_id)
+
                         # Capture arguments
                         try:
                             all_args = _capture_arguments(func, args, kwargs)
                             span.set_attribute(args_attr, _serialize_value(all_args))
                         except Exception:
                             pass
-                        
+
                         try:
                             result = func(*args, **kwargs)
-                            
+
                             # Set output attributes
                             span.set_attribute(result_attr, _serialize_value(result))
                             span.set_attribute(HeimdallAttributes.STATUS, SpanStatus.OK.value)
                             span.set_status(Status(StatusCode.OK))
-                            
+
                             return result
                         except Exception as e:
                             _record_error(span, e)
@@ -125,11 +159,11 @@ def _create_span_decorator(
                         finally:
                             duration_ms = (time.perf_counter() - start_time) * 1000
                             span.set_attribute(HeimdallAttributes.DURATION_MS, duration_ms)
-                
+
                 return sync_wrapped  # type: ignore
-        
+
         return wrapper
-    
+
     return decorator
 
 
@@ -160,6 +194,12 @@ trace_mcp_tool = _create_span_decorator(
 trace_mcp_tool.__doc__ = """
 Decorator to trace MCP tool calls.
 
+Args:
+    name: Custom name for the span (defaults to function name)
+    user_extractor: Function to extract user ID from (args, kwargs).
+        Useful for extracting user/session info from MCP Context.
+        Returns user ID string or None to use default.
+
 Example:
     >>> @trace_mcp_tool()
     ... def my_tool(arg1: str, arg2: int) -> str:
@@ -168,6 +208,11 @@ Example:
     >>> @trace_mcp_tool("custom-tool-name")
     ... async def async_tool(data: dict) -> dict:
     ...     return {"processed": data}
+
+    # Extract user from MCP Context (first argument)
+    >>> @trace_mcp_tool(user_extractor=lambda args, kwargs: getattr(args[0], 'session_id', None) if args else None)
+    ... def my_tool_with_ctx(ctx, query: str) -> str:
+    ...     return f"Query: {query}"
 """
 
 trace_mcp_resource = _create_span_decorator(

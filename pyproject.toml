@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hmdl"
-version = "0.1.0"
+version = "0.0.1"
 description = "Observability SDK for MCP (Model Context Protocol) servers - Heimdall Platform"
 readme = "README.md"
 license = "MIT"
 authors = [
-    { name = "Heimdall Team", email = "team@heimdall.dev" }
+    { name = "Heimdall Team", email = "founder@tryheimdall.com" }
 ]
 keywords = [
     "observability",
@@ -54,10 +54,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/heimdall-observability/heimdall"
-Documentation = "https://docs.heimdall.dev"
-Repository = "https://github.com/heimdall-observability/heimdall"
-Issues = "https://github.com/heimdall-observability/heimdall/issues"
+Homepage = "https://tryheimdall.com"
+Documentation = "https://docs.tryheimdall.com"
+Repository = "https://github.com/hmdl-inc/heimdall-python"
+Issues = "https://github.com/hmdl-inc/heimdall-python/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/hmdl"]

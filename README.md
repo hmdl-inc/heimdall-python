@@ -18,7 +18,7 @@ pip install hmdl
 
 Before using the SDK, you need to set up your organization and project in the Heimdall dashboard:
 
-1. Start the Heimdall backend and frontend (see [Heimdall README](../heimdall/README.md))
+1. Start the Heimdall backend and frontend (see [Heimdall Documentation](https://docs.tryheimdall.com))
 2. Navigate to http://localhost:5173
 3. **Create an account** with your email and password
 4. **Create an Organization** - this groups your projects together

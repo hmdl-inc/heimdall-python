@@ -6,7 +6,7 @@ OpenTelemetry-based observability tracking.
 """
 
 from hmdl.client import HeimdallClient
-from hmdl.decorators import trace_mcp_tool, trace_mcp_resource, trace_mcp_prompt, observe
+from hmdl.decorators import trace_mcp_tool
 from hmdl.config import HeimdallConfig
 from hmdl.types import SpanKind, SpanStatus
 
@@ -17,9 +17,6 @@ __all__ = [
     "HeimdallClient",
     # Decorators
     "trace_mcp_tool",
-    "trace_mcp_resource", 
-    "trace_mcp_prompt",
-    "observe",
     # Configuration
     "HeimdallConfig",
     # Types

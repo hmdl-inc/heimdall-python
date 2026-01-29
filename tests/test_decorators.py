@@ -6,9 +6,6 @@ from unittest.mock import MagicMock, patch, AsyncMock
 
 from hmdl.decorators import (
     trace_mcp_tool,
-    trace_mcp_resource,
-    trace_mcp_prompt,
-    observe,
     _serialize_value,
     _capture_arguments,
 )
@@ -37,7 +34,7 @@ class TestSerializeValue:
         class Custom:
             def __str__(self):
                 return "custom-object"
-        
+
         result = _serialize_value(Custom())
         assert "custom-object" in result
 
@@ -49,7 +46,7 @@ class TestCaptureArguments:
         """Test capturing positional arguments."""
         def func(a, b, c):
             pass
-        
+
         result = _capture_arguments(func, (1, 2, 3), {})
         assert result == {"a": 1, "b": 2, "c": 3}
 
@@ -57,7 +54,7 @@ class TestCaptureArguments:
         """Test capturing keyword arguments."""
         def func(a, b, c):
             pass
-        
+
         result = _capture_arguments(func, (), {"a": 1, "b": 2, "c": 3})
         assert result == {"a": 1, "b": 2, "c": 3}
 
@@ -65,7 +62,7 @@ class TestCaptureArguments:
         """Test capturing mixed positional and keyword arguments."""
         def func(a, b, c=10):
             pass
-        
+
         result = _capture_arguments(func, (1,), {"b": 2})
         assert result == {"a": 1, "b": 2, "c": 10}
 
@@ -78,7 +75,7 @@ class TestTraceMCPTool:
         @trace_mcp_tool()
         def my_tool(query: str) -> str:
             return f"result: {query}"
-        
+
         result = my_tool("test")
         assert result == "result: test"
 
@@ -87,7 +84,7 @@ class TestTraceMCPTool:
         @trace_mcp_tool()
         async def my_tool(query: str) -> str:
             return f"result: {query}"
-        
+
         import asyncio
         result = asyncio.run(my_tool("test"))
         assert result == "result: test"
@@ -97,7 +94,7 @@ class TestTraceMCPTool:
         @trace_mcp_tool("custom-tool-name")
         def my_tool():
             return "result"
-        
+
         result = my_tool()
         assert result == "result"
 
@@ -106,7 +103,7 @@ class TestTraceMCPTool:
         @trace_mcp_tool()
         def my_tool():
             pass
-        
+
         assert my_tool.__name__ == "my_tool"
 
     def test_exception_propagation(self):
@@ -114,82 +111,35 @@ class TestTraceMCPTool:
         @trace_mcp_tool()
         def failing_tool():
             raise ValueError("test error")
-        
+
         with pytest.raises(ValueError, match="test error"):
             failing_tool()
 
+    def test_with_multiple_args(self):
+        """Test decorator with multiple arguments."""
+        @trace_mcp_tool()
+        def search_tool(query: str, limit: int = 10) -> dict:
+            return {"query": query, "limit": limit}
 
-class TestTraceMCPResource:
-    """Tests for trace_mcp_resource decorator."""
+        result = search_tool("test", limit=5)
+        assert result == {"query": "test", "limit": 5}
 
-    def test_sync_function(self):
-        """Test sync resource function."""
-        @trace_mcp_resource()
-        def read_resource(uri: str) -> str:
-            return f"content of {uri}"
-        
-        result = read_resource("file://test.txt")
-        assert result == "content of file://test.txt"
+    def test_with_dict_return(self):
+        """Test decorator with dictionary return value."""
+        @trace_mcp_tool("calculator")
+        def calculator(a: int, b: int) -> dict:
+            return {"sum": a + b, "product": a * b}
 
+        result = calculator(3, 4)
+        assert result == {"sum": 7, "product": 12}
 
-class TestTraceMCPPrompt:
-    """Tests for trace_mcp_prompt decorator."""
+    def test_async_with_exception(self):
+        """Test async function with exception."""
+        @trace_mcp_tool()
+        async def failing_async_tool():
+            raise RuntimeError("async error")
 
-    def test_sync_function(self):
-        """Test sync prompt function."""
-        @trace_mcp_prompt()
-        def generate_prompt(context: str) -> list:
-            return [{"role": "user", "content": context}]
-        
-        result = generate_prompt("hello")
-        assert result == [{"role": "user", "content": "hello"}]
-
-
-class TestObserve:
-    """Tests for observe decorator."""
-
-    def test_without_parentheses(self):
-        """Test @observe without parentheses."""
-        @observe
-        def my_func(x: int) -> int:
-            return x * 2
-        
-        result = my_func(5)
-        assert result == 10
-
-    def test_with_parentheses(self):
-        """Test @observe() with parentheses."""
-        @observe()
-        def my_func(x: int) -> int:
-            return x * 2
-        
-        result = my_func(5)
-        assert result == 10
-
-    def test_with_custom_name(self):
-        """Test @observe with custom name."""
-        @observe(name="custom-operation")
-        def my_func():
-            return "result"
-        
-        result = my_func()
-        assert result == "result"
-
-    def test_async_function(self):
-        """Test @observe with async function."""
-        @observe
-        async def async_func(x: int) -> int:
-            return x * 2
-        
         import asyncio
-        result = asyncio.run(async_func(5))
-        assert result == 10
-
-    def test_preserves_function_name(self):
-        """Test decorator preserves function name."""
-        @observe
-        def my_func():
-            pass
-        
-        assert my_func.__name__ == "my_func"
+        with pytest.raises(RuntimeError, match="async error"):
+            asyncio.run(failing_async_tool())
 

@@ -61,44 +61,26 @@ client = HeimdallClient(
 )
 ```
 
-### 3. Instrument your MCP functions
+### 4. Instrument your MCP tool functions
 
 ```python
-from hmdl import trace_mcp_tool, trace_mcp_resource, trace_mcp_prompt, observe
+from hmdl import trace_mcp_tool
 
-# Trace MCP tool calls
 @trace_mcp_tool()
 def search_documents(query: str, limit: int = 10) -> list:
     """Search for documents matching the query."""
     # Your implementation here
     return results
 
-# Trace MCP resource access
-@trace_mcp_resource()
-def read_file(uri: str) -> str:
-    """Read a file resource."""
-    with open(uri) as f:
-        return f.read()
-
-# Trace MCP prompt generation
-@trace_mcp_prompt()
-def generate_summary_prompt(context: str) -> list:
-    """Generate a summary prompt."""
-    return [
-        {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": f"Summarize: {context}"}
-    ]
-
-# General observation for any function
-@observe
-def process_data(data: dict) -> dict:
-    """Process some data."""
+@trace_mcp_tool("custom-tool-name")
+def another_tool(data: dict) -> dict:
+    """Another MCP tool with custom name."""
     return {"processed": True, **data}
 ```
 
-### 4. Async support
+### 5. Async support
 
-All decorators work with async functions:
+The decorator works with async functions:
 
 ```python
 @trace_mcp_tool()

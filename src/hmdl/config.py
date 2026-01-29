@@ -16,6 +16,7 @@ class HeimdallConfig:
         endpoint: The Heimdall platform endpoint URL.
         service_name: Name of the service being instrumented.
         environment: Deployment environment (e.g., 'production', 'staging').
+        org_id: Organization ID from Heimdall dashboard.
         project_id: Project ID to associate traces with in Heimdall.
         enabled: Whether tracing is enabled.
         debug: Enable debug logging.
@@ -38,6 +39,9 @@ class HeimdallConfig:
     )
     environment: str = field(
         default_factory=lambda: os.environ.get("HEIMDALL_ENVIRONMENT", "development")
+    )
+    org_id: str = field(
+        default_factory=lambda: os.environ.get("HEIMDALL_ORG_ID", "default")
     )
     project_id: str = field(
         default_factory=lambda: os.environ.get("HEIMDALL_PROJECT_ID", "default")

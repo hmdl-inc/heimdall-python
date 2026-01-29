@@ -48,19 +48,23 @@ class HeimdallClient:
         endpoint: Optional[str] = None,
         service_name: Optional[str] = None,
         environment: Optional[str] = None,
+        org_id: Optional[str] = None,
+        project_id: Optional[str] = None,
     ) -> None:
         """Initialize the Heimdall client.
-        
+
         Args:
             config: Full configuration object. If provided, other args are ignored.
             api_key: API key for Heimdall platform.
             endpoint: Heimdall platform endpoint URL.
             service_name: Name of the service being instrumented.
             environment: Deployment environment.
+            org_id: Organization ID from Heimdall dashboard.
+            project_id: Project ID from Heimdall dashboard.
         """
         if self._initialized:
             return
-            
+
         # Build config from arguments or use provided config
         if config is not None:
             self.config = config
@@ -70,6 +74,8 @@ class HeimdallClient:
                 endpoint=endpoint or HeimdallConfig().endpoint,
                 service_name=service_name or HeimdallConfig().service_name,
                 environment=environment or HeimdallConfig().environment,
+                org_id=org_id or HeimdallConfig().org_id,
+                project_id=project_id or HeimdallConfig().project_id,
             )
         
         self._tracer: Optional[trace.Tracer] = None
@@ -93,6 +99,7 @@ class HeimdallClient:
         resource = Resource.create({
             SERVICE_NAME: self.config.service_name,
             HeimdallAttributes.HEIMDALL_ENVIRONMENT: self.config.environment,
+            HeimdallAttributes.HEIMDALL_ORG_ID: self.config.org_id,
             HeimdallAttributes.HEIMDALL_PROJECT_ID: self.config.project_id,
         })
         

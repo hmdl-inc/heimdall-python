@@ -14,11 +14,23 @@ pip install hmdl
 
 ## Quick Start
 
-### 1. Set up environment variables
+### 1. Create Organization and Project in Heimdall
+
+Before using the SDK, you need to set up your organization and project in the Heimdall dashboard:
+
+1. Start the Heimdall backend and frontend (see [Heimdall README](../heimdall/README.md))
+2. Navigate to http://localhost:5173
+3. **Create an account** with your email and password
+4. **Create an Organization** - this groups your projects together
+5. **Create a Project** - each project has a unique ID for trace collection
+6. Go to **Settings** to find your **Organization ID** and **Project ID**
+
+### 2. Set up environment variables
 
 ```bash
 # Required for local development
 export HEIMDALL_ENDPOINT="http://localhost:4318"  # Your Heimdall backend
+export HEIMDALL_ORG_ID="your-org-id"              # From Heimdall Settings page
 export HEIMDALL_PROJECT_ID="your-project-id"      # From Heimdall Settings page
 export HEIMDALL_ENABLED="true"
 
@@ -31,7 +43,7 @@ export HEIMDALL_API_KEY="your-api-key"
 export HEIMDALL_ENDPOINT="https://api.heimdall.dev"
 ```
 
-### 2. Initialize the client
+### 3. Initialize the client
 
 ```python
 from hmdl import HeimdallClient
@@ -42,7 +54,8 @@ client = HeimdallClient()
 # Or with explicit configuration
 client = HeimdallClient(
     endpoint="http://localhost:4318",
-    project_id="your-project-id",
+    org_id="your-org-id",           # From Settings page
+    project_id="your-project-id",   # From Settings page
     service_name="my-mcp-server",
     environment="development"
 )
@@ -99,6 +112,7 @@ async def async_search(query: str) -> list:
 | Environment Variable | Description | Default |
 |---------------------|-------------|---------|
 | `HEIMDALL_ENDPOINT` | Heimdall backend URL | `http://localhost:4318` |
+| `HEIMDALL_ORG_ID` | Organization ID (from Settings page) | `default` |
 | `HEIMDALL_PROJECT_ID` | Project ID (from Settings page) | `default` |
 | `HEIMDALL_ENABLED` | Enable/disable tracing | `true` |
 | `HEIMDALL_SERVICE_NAME` | Service name for traces | `mcp-server` |
@@ -114,6 +128,7 @@ For local development, you don't need an API key. Just set:
 
 ```bash
 export HEIMDALL_ENDPOINT="http://localhost:4318"
+export HEIMDALL_ORG_ID="your-org-id"          # Copy from Settings page
 export HEIMDALL_PROJECT_ID="your-project-id"  # Copy from Settings page
 export HEIMDALL_ENABLED="true"
 ```

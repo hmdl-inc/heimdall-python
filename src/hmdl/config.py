@@ -18,6 +18,10 @@ class HeimdallConfig:
         environment: Deployment environment (e.g., 'production', 'staging').
         org_id: Organization ID from Heimdall dashboard.
         project_id: Project ID to associate traces with in Heimdall.
+        session_id: Session ID to associate with all spans. Useful for tracking
+            requests from the same MCP client session.
+        user_id: User ID to associate with all spans. Can be overridden per-span
+            using user_extractor option in decorators.
         enabled: Whether tracing is enabled.
         debug: Enable debug logging.
         batch_size: Number of spans to batch before sending.
@@ -45,6 +49,12 @@ class HeimdallConfig:
     )
     project_id: str = field(
         default_factory=lambda: os.environ.get("HEIMDALL_PROJECT_ID", "default")
+    )
+    session_id: Optional[str] = field(
+        default_factory=lambda: os.environ.get("HEIMDALL_SESSION_ID")
+    )
+    user_id: Optional[str] = field(
+        default_factory=lambda: os.environ.get("HEIMDALL_USER_ID")
     )
     enabled: bool = field(
         default_factory=lambda: os.environ.get("HEIMDALL_ENABLED", "true").lower() == "true"

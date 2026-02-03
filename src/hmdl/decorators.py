@@ -19,6 +19,10 @@ F = TypeVar("F", bound=Callable[..., Any])
 # Takes (args, kwargs) and returns user ID string or None
 UserExtractor = Callable[[tuple, dict], Optional[str]]
 
+# Type alias for session extractor function
+# Takes (args, kwargs) and returns session ID string or None
+SessionExtractor = Callable[[tuple, dict], Optional[str]]
+
 
 def _serialize_value(value: Any) -> str:
     """Safely serialize a value to string for span attributes."""
@@ -34,22 +38,66 @@ def _get_client() -> Any:
     return HeimdallClient.get_instance()
 
 
+def _extract_session_id(
+    args: tuple,
+    kwargs: dict,
+    session_extractor: Optional[SessionExtractor],
+) -> Optional[str]:
+    """Extract session ID using the extractor callback or MCP context.
+
+    Priority: session_extractor callback > MCP context > None
+    """
+    # Try extractor callback first
+    if session_extractor:
+        try:
+            result = session_extractor(args, kwargs)
+            if result:
+                return result
+        except Exception:
+            # Ignore extraction errors
+            pass
+
+    # Fall back to MCP context
+    try:
+        from hmdl.context import get_mcp_context
+        ctx = get_mcp_context()
+        if ctx and ctx.session_id:
+            return ctx.session_id
+    except Exception:
+        pass
+
+    return None
+
+
 def _extract_user_id(
     args: tuple,
     kwargs: dict,
     user_extractor: Optional[UserExtractor],
-) -> str:
-    """Extract user ID using the extractor callback, falling back to 'anonymous'."""
-    user_id = "anonymous"
+) -> Optional[str]:
+    """Extract user ID using the extractor callback or MCP context.
+
+    Priority: user_extractor callback > MCP context > None
+    """
+    # Try extractor callback first
     if user_extractor:
         try:
-            extracted = user_extractor(args, kwargs)
-            if extracted:
-                user_id = extracted
+            result = user_extractor(args, kwargs)
+            if result:
+                return result
         except Exception:
-            # Ignore extraction errors, use "anonymous"
+            # Ignore extraction errors
             pass
-    return user_id
+
+    # Fall back to MCP context
+    try:
+        from hmdl.context import get_mcp_context
+        ctx = get_mcp_context()
+        if ctx and ctx.user_id:
+            return ctx.user_id
+    except Exception:
+        pass
+
+    return None
 
 
 def _create_span_decorator(
@@ -64,6 +112,7 @@ def _create_span_decorator(
         name: Optional[str] = None,
         *,
         user_extractor: Optional[UserExtractor] = None,
+        session_extractor: Optional[SessionExtractor] = None,
     ) -> Callable[[F], F]:
         def wrapper(func: F) -> F:
             span_name = name or func.__name__
@@ -87,9 +136,18 @@ def _create_span_decorator(
                         span.set_attribute(name_attr, span_name)
                         span.set_attribute("heimdall.span_kind", span_kind.value)
 
-                        # Extract user ID - try user_extractor first, fallback to "anonymous"
+                        # Extract session ID - try session_extractor first, then client's session_id
+                        session_id = _extract_session_id(args, kwargs, session_extractor)
+                        if not session_id:
+                            session_id = client.get_session_id()
+                        if session_id:
+                            span.set_attribute(HeimdallAttributes.HEIMDALL_SESSION_ID, session_id)
+
+                        # Extract user ID - try user_extractor first, then client's user_id, then "anonymous"
                         user_id = _extract_user_id(args, kwargs, user_extractor)
-                        span.set_attribute(HeimdallAttributes.HEIMDALL_USER_ID, user_id)
+                        if not user_id:
+                            user_id = client.get_user_id()
+                        span.set_attribute(HeimdallAttributes.HEIMDALL_USER_ID, user_id or "anonymous")
 
                         # Capture arguments
                         try:
@@ -133,9 +191,18 @@ def _create_span_decorator(
                         span.set_attribute(name_attr, span_name)
                         span.set_attribute("heimdall.span_kind", span_kind.value)
 
-                        # Extract user ID - try user_extractor first, fallback to "anonymous"
+                        # Extract session ID - try session_extractor first, then client's session_id
+                        session_id = _extract_session_id(args, kwargs, session_extractor)
+                        if not session_id:
+                            session_id = client.get_session_id()
+                        if session_id:
+                            span.set_attribute(HeimdallAttributes.HEIMDALL_SESSION_ID, session_id)
+
+                        # Extract user ID - try user_extractor first, then client's user_id, then "anonymous"
                         user_id = _extract_user_id(args, kwargs, user_extractor)
-                        span.set_attribute(HeimdallAttributes.HEIMDALL_USER_ID, user_id)
+                        if not user_id:
+                            user_id = client.get_user_id()
+                        span.set_attribute(HeimdallAttributes.HEIMDALL_USER_ID, user_id or "anonymous")
 
                         # Capture arguments
                         try:
@@ -197,8 +264,11 @@ Decorator to trace MCP tool calls.
 Args:
     name: Custom name for the span (defaults to function name)
     user_extractor: Function to extract user ID from (args, kwargs).
-        Useful for extracting user/session info from MCP Context.
-        Returns user ID string or None to use default.
+        Useful for extracting user info from MCP Context.
+        Returns user ID string or None to use default from client.
+    session_extractor: Function to extract session ID from (args, kwargs).
+        Useful for extracting session info from MCP Context.
+        Returns session ID string or None to use default from client.
 
 Example:
     >>> @trace_mcp_tool()
@@ -209,8 +279,11 @@ Example:
     ... async def async_tool(data: dict) -> dict:
     ...     return {"processed": data}
 
-    # Extract user from MCP Context (first argument)
-    >>> @trace_mcp_tool(user_extractor=lambda args, kwargs: getattr(args[0], 'session_id', None) if args else None)
+    # Extract user and session from MCP Context (first argument)
+    >>> @trace_mcp_tool(
+    ...     user_extractor=lambda args, kwargs: getattr(args[0], 'user_id', None) if args else None,
+    ...     session_extractor=lambda args, kwargs: getattr(args[0], 'session_id', None) if args else None,
+    ... )
     ... def my_tool_with_ctx(ctx, query: str) -> str:
     ...     return f"Query: {query}"
 """

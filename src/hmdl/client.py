@@ -20,27 +20,31 @@ logger = logging.getLogger(__name__)
 
 class HeimdallClient:
     """Client for sending observability data to Heimdall platform.
-    
+
     This client sets up OpenTelemetry tracing and provides methods for
     creating spans and recording MCP operations.
-    
+
     Example:
         >>> from hmdl import HeimdallClient
         >>> client = HeimdallClient(api_key="your-api-key")
         >>> with client.start_span("my-operation") as span:
         ...     # Your code here
         ...     span.set_attribute("custom.attribute", "value")
+
+        # Track user sessions
+        >>> client.set_session_id("session-123")
+        >>> client.set_user_id("user-456")
     """
-    
+
     _instance: Optional["HeimdallClient"] = None
     _initialized: bool = False
-    
+
     def __new__(cls, *args: Any, **kwargs: Any) -> "HeimdallClient":
         """Singleton pattern to ensure only one client instance."""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
-    
+
     def __init__(
         self,
         config: Optional[HeimdallConfig] = None,
@@ -50,6 +54,8 @@ class HeimdallClient:
         environment: Optional[str] = None,
         org_id: Optional[str] = None,
         project_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> None:
         """Initialize the Heimdall client.
 
@@ -61,6 +67,8 @@ class HeimdallClient:
             environment: Deployment environment.
             org_id: Organization ID from Heimdall dashboard.
             project_id: Project ID from Heimdall dashboard.
+            session_id: Session ID for tracking MCP client sessions.
+            user_id: User ID for tracking users.
         """
         if self._initialized:
             return
@@ -76,16 +84,22 @@ class HeimdallClient:
                 environment=environment or HeimdallConfig().environment,
                 org_id=org_id or HeimdallConfig().org_id,
                 project_id=project_id or HeimdallConfig().project_id,
+                session_id=session_id or HeimdallConfig().session_id,
+                user_id=user_id or HeimdallConfig().user_id,
             )
-        
+
         self._tracer: Optional[trace.Tracer] = None
         self._provider: Optional[TracerProvider] = None
-        
+
+        # Runtime session and user tracking (can be updated dynamically)
+        self._session_id: Optional[str] = self.config.session_id
+        self._user_id: Optional[str] = self.config.user_id
+
         if self.config.enabled:
             self._setup_tracing()
-        
+
         self._initialized = True
-        
+
         # Register cleanup on exit
         atexit.register(self.shutdown)
     
@@ -180,6 +194,45 @@ class HeimdallClient:
         if self._provider is not None:
             self._provider.shutdown()
             logger.debug("Heimdall client shutdown complete")
+
+    def get_session_id(self) -> Optional[str]:
+        """Get the current session ID."""
+        return self._session_id
+
+    def set_session_id(self, session_id: Optional[str]) -> None:
+        """Set the session ID for all subsequent spans.
+
+        Call this when an MCP client connects to associate all operations
+        with that session.
+
+        Args:
+            session_id: The session identifier (e.g., from MCP client connection)
+
+        Example:
+            >>> # When MCP client connects
+            >>> client.set_session_id(ctx.session_id or ctx.client_info.name)
+        """
+        self._session_id = session_id
+        logger.debug(f"Session ID set to: {session_id}")
+
+    def get_user_id(self) -> Optional[str]:
+        """Get the current user ID."""
+        return self._user_id
+
+    def set_user_id(self, user_id: Optional[str]) -> None:
+        """Set the user ID for all subsequent spans.
+
+        Can be overridden per-span using user_extractor option in decorators.
+
+        Args:
+            user_id: The user identifier
+
+        Example:
+            >>> # When user is identified
+            >>> client.set_user_id("user-123")
+        """
+        self._user_id = user_id
+        logger.debug(f"User ID set to: {user_id}")
 
     @classmethod
     def get_instance(cls) -> Optional["HeimdallClient"]:

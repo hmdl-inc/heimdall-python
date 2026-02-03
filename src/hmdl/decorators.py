@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import base64
 import functools
 import inspect
 import json
 import time
-from typing import Any, Callable, Optional, TypeVar, Union, overload
+from typing import Any, Callable, Dict, Optional, TypeVar, Union, overload
 
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
@@ -22,6 +23,56 @@ UserExtractor = Callable[[tuple, dict], Optional[str]]
 # Type alias for session extractor function
 # Takes (args, kwargs) and returns session ID string or None
 SessionExtractor = Callable[[tuple, dict], Optional[str]]
+
+# MCP header names
+MCP_SESSION_ID_HEADER = "Mcp-Session-Id"
+AUTHORIZATION_HEADER = "Authorization"
+
+
+def _parse_jwt_claims(token: str) -> Dict[str, Any]:
+    """Parse JWT claims from a token string (without verification)."""
+    try:
+        token_str = token
+        if token_str.lower().startswith("bearer "):
+            token_str = token_str[7:]
+        parts = token_str.split(".")
+        if len(parts) != 3:
+            return {}
+        payload = parts[1]
+        # Add padding if needed
+        padding = 4 - len(payload) % 4
+        if padding != 4:
+            payload += "=" * padding
+        decoded = base64.urlsafe_b64decode(payload).decode("utf-8")
+        return json.loads(decoded)
+    except Exception:
+        return {}
+
+
+def _extract_user_id_from_token(token: str) -> Optional[str]:
+    """Extract user ID from a JWT token."""
+    claims = _parse_jwt_claims(token)
+    # Check common user ID claims in order of preference
+    for claim in ["sub", "user_id", "userId", "uid"]:
+        if claim in claims and isinstance(claims[claim], str):
+            return claims[claim]
+    return None
+
+
+def _extract_from_headers(headers: Dict[str, str]) -> tuple[Optional[str], Optional[str]]:
+    """Extract session ID and user ID from HTTP headers.
+
+    Returns:
+        Tuple of (session_id, user_id)
+    """
+    # Normalize headers to lowercase for case-insensitive lookup
+    normalized = {k.lower(): v for k, v in headers.items()}
+
+    session_id = normalized.get(MCP_SESSION_ID_HEADER.lower())
+    auth_header = normalized.get(AUTHORIZATION_HEADER.lower())
+    user_id = _extract_user_id_from_token(auth_header) if auth_header else None
+
+    return session_id, user_id
 
 
 def _serialize_value(value: Any) -> str:
@@ -42,10 +93,11 @@ def _extract_session_id(
     args: tuple,
     kwargs: dict,
     session_extractor: Optional[SessionExtractor],
+    header_session_id: Optional[str],
 ) -> Optional[str]:
-    """Extract session ID using the extractor callback or MCP context.
+    """Extract session ID using the extractor callback or headers.
 
-    Priority: session_extractor callback > MCP context > None
+    Priority: session_extractor callback > headers > None
     """
     # Try extractor callback first
     if session_extractor:
@@ -57,14 +109,9 @@ def _extract_session_id(
             # Ignore extraction errors
             pass
 
-    # Fall back to MCP context
-    try:
-        from hmdl.context import get_mcp_context
-        ctx = get_mcp_context()
-        if ctx and ctx.session_id:
-            return ctx.session_id
-    except Exception:
-        pass
+    # Fall back to headers
+    if header_session_id:
+        return header_session_id
 
     return None
 
@@ -73,10 +120,11 @@ def _extract_user_id(
     args: tuple,
     kwargs: dict,
     user_extractor: Optional[UserExtractor],
+    header_user_id: Optional[str],
 ) -> Optional[str]:
-    """Extract user ID using the extractor callback or MCP context.
+    """Extract user ID using the extractor callback or headers.
 
-    Priority: user_extractor callback > MCP context > None
+    Priority: user_extractor callback > headers > None
     """
     # Try extractor callback first
     if user_extractor:
@@ -88,14 +136,9 @@ def _extract_user_id(
             # Ignore extraction errors
             pass
 
-    # Fall back to MCP context
-    try:
-        from hmdl.context import get_mcp_context
-        ctx = get_mcp_context()
-        if ctx and ctx.user_id:
-            return ctx.user_id
-    except Exception:
-        pass
+    # Fall back to headers
+    if header_user_id:
+        return header_user_id
 
     return None
 
@@ -111,9 +154,13 @@ def _create_span_decorator(
     def decorator(
         name: Optional[str] = None,
         *,
+        headers: Optional[Dict[str, str]] = None,
         user_extractor: Optional[UserExtractor] = None,
         session_extractor: Optional[SessionExtractor] = None,
     ) -> Callable[[F], F]:
+        # Pre-extract from headers if provided
+        header_session_id, header_user_id = _extract_from_headers(headers) if headers else (None, None)
+
         def wrapper(func: F) -> F:
             span_name = name or func.__name__
             is_async = inspect.iscoroutinefunction(func)
@@ -136,15 +183,15 @@ def _create_span_decorator(
                         span.set_attribute(name_attr, span_name)
                         span.set_attribute("heimdall.span_kind", span_kind.value)
 
-                        # Extract session ID - try session_extractor first, then client's session_id
-                        session_id = _extract_session_id(args, kwargs, session_extractor)
+                        # Extract session ID - priority: extractor > headers > client
+                        session_id = _extract_session_id(args, kwargs, session_extractor, header_session_id)
                         if not session_id:
                             session_id = client.get_session_id()
                         if session_id:
                             span.set_attribute(HeimdallAttributes.HEIMDALL_SESSION_ID, session_id)
 
-                        # Extract user ID - try user_extractor first, then client's user_id, then "anonymous"
-                        user_id = _extract_user_id(args, kwargs, user_extractor)
+                        # Extract user ID - priority: extractor > headers > client > "anonymous"
+                        user_id = _extract_user_id(args, kwargs, user_extractor, header_user_id)
                         if not user_id:
                             user_id = client.get_user_id()
                         span.set_attribute(HeimdallAttributes.HEIMDALL_USER_ID, user_id or "anonymous")
@@ -191,15 +238,15 @@ def _create_span_decorator(
                         span.set_attribute(name_attr, span_name)
                         span.set_attribute("heimdall.span_kind", span_kind.value)
 
-                        # Extract session ID - try session_extractor first, then client's session_id
-                        session_id = _extract_session_id(args, kwargs, session_extractor)
+                        # Extract session ID - priority: extractor > headers > client
+                        session_id = _extract_session_id(args, kwargs, session_extractor, header_session_id)
                         if not session_id:
                             session_id = client.get_session_id()
                         if session_id:
                             span.set_attribute(HeimdallAttributes.HEIMDALL_SESSION_ID, session_id)
 
-                        # Extract user ID - try user_extractor first, then client's user_id, then "anonymous"
-                        user_id = _extract_user_id(args, kwargs, user_extractor)
+                        # Extract user ID - priority: extractor > headers > client > "anonymous"
+                        user_id = _extract_user_id(args, kwargs, user_extractor, header_user_id)
                         if not user_id:
                             user_id = client.get_user_id()
                         span.set_attribute(HeimdallAttributes.HEIMDALL_USER_ID, user_id or "anonymous")

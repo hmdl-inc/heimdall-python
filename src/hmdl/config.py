@@ -31,7 +31,7 @@ class HeimdallConfig:
     )
     endpoint: str = field(
         default_factory=lambda: os.environ.get(
-            "HEIMDALL_ENDPOINT", "https://api.heimdall.dev"
+            "HEIMDALL_ENDPOINT", "http://localhost:4318"
         )
     )
     service_name: str = field(

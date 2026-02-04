@@ -96,8 +96,65 @@ class TestHeimdallClient:
         """Test get_current_span returns current span."""
         with patch.dict(os.environ, {"HEIMDALL_ENABLED": "false"}):
             client = HeimdallClient()
-            
+
             # Should return a span (possibly invalid/no-op)
             span = client.get_current_span()
             assert span is not None
 
+
+class TestSessionAndUserIdManagement:
+    """Tests for session and user ID management."""
+
+    def test_get_and_set_session_id(self):
+        """Test get_session_id and set_session_id methods."""
+        with patch.dict(os.environ, {"HEIMDALL_ENABLED": "false"}):
+            client = HeimdallClient()
+
+            # Initially undefined
+            assert client.get_session_id() is None
+
+            # Set session ID
+            client.set_session_id("session-123")
+            assert client.get_session_id() == "session-123"
+
+            # Clear session ID
+            client.set_session_id(None)
+            assert client.get_session_id() is None
+
+    def test_get_and_set_user_id(self):
+        """Test get_user_id and set_user_id methods."""
+        with patch.dict(os.environ, {"HEIMDALL_ENABLED": "false"}):
+            client = HeimdallClient()
+
+            # Initially undefined
+            assert client.get_user_id() is None
+
+            # Set user ID
+            client.set_user_id("user-456")
+            assert client.get_user_id() == "user-456"
+
+            # Clear user ID
+            client.set_user_id(None)
+            assert client.get_user_id() is None
+
+    def test_session_id_from_environment_variable(self):
+        """Test session ID initialization from environment variable."""
+        with patch.dict(os.environ, {
+            "HEIMDALL_ENABLED": "false",
+            "HEIMDALL_SESSION_ID": "env-session-id"
+        }):
+            HeimdallClient.reset()
+            client = HeimdallClient()
+
+            assert client.get_session_id() == "env-session-id"
+
+    def test_user_id_from_environment_variable(self):
+        """Test user ID initialization from environment variable."""
+        with patch.dict(os.environ, {
+            "HEIMDALL_ENABLED": "false",
+            "HEIMDALL_USER_ID": "env-user-id"
+        }):
+            HeimdallClient.reset()
+            client = HeimdallClient()
+
+            assert client.get_user_id() == "env-user-id"

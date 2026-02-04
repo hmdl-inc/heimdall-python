@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import base64
 import functools
 import inspect
 import json
 import time
-from typing import Any, Callable, Optional, TypeVar, Union, overload
+from typing import Any, Callable, Dict, Optional, TypeVar, Union, overload
 
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
@@ -14,6 +15,64 @@ from opentelemetry.trace import Status, StatusCode
 from hmdl.types import HeimdallAttributes, SpanKind, SpanStatus
 
 F = TypeVar("F", bound=Callable[..., Any])
+
+# Type alias for user extractor function
+# Takes (args, kwargs) and returns user ID string or None
+UserExtractor = Callable[[tuple, dict], Optional[str]]
+
+# Type alias for session extractor function
+# Takes (args, kwargs) and returns session ID string or None
+SessionExtractor = Callable[[tuple, dict], Optional[str]]
+
+# MCP header names
+MCP_SESSION_ID_HEADER = "Mcp-Session-Id"
+AUTHORIZATION_HEADER = "Authorization"
+
+
+def _parse_jwt_claims(token: str) -> Dict[str, Any]:
+    """Parse JWT claims from a token string (without verification)."""
+    try:
+        token_str = token
+        if token_str.lower().startswith("bearer "):
+            token_str = token_str[7:]
+        parts = token_str.split(".")
+        if len(parts) != 3:
+            return {}
+        payload = parts[1]
+        # Add padding if needed
+        padding = 4 - len(payload) % 4
+        if padding != 4:
+            payload += "=" * padding
+        decoded = base64.urlsafe_b64decode(payload).decode("utf-8")
+        return json.loads(decoded)
+    except Exception:
+        return {}
+
+
+def _extract_user_id_from_token(token: str) -> Optional[str]:
+    """Extract user ID from a JWT token."""
+    claims = _parse_jwt_claims(token)
+    # Check common user ID claims in order of preference
+    for claim in ["sub", "user_id", "userId", "uid"]:
+        if claim in claims and isinstance(claims[claim], str):
+            return claims[claim]
+    return None
+
+
+def _extract_from_headers(headers: Dict[str, str]) -> tuple[Optional[str], Optional[str]]:
+    """Extract session ID and user ID from HTTP headers.
+
+    Returns:
+        Tuple of (session_id, user_id)
+    """
+    # Normalize headers to lowercase for case-insensitive lookup
+    normalized = {k.lower(): v for k, v in headers.items()}
+
+    session_id = normalized.get(MCP_SESSION_ID_HEADER.lower())
+    auth_header = normalized.get(AUTHORIZATION_HEADER.lower())
+    user_id = _extract_user_id_from_token(auth_header) if auth_header else None
+
+    return session_id, user_id
 
 
 def _serialize_value(value: Any) -> str:
@@ -30,52 +89,128 @@ def _get_client() -> Any:
     return HeimdallClient.get_instance()
 
 
+def _extract_session_id(
+    args: tuple,
+    kwargs: dict,
+    session_extractor: Optional[SessionExtractor],
+    header_session_id: Optional[str],
+) -> Optional[str]:
+    """Extract session ID using the extractor callback or headers.
+
+    Priority: session_extractor callback > headers > None
+    """
+    # Try extractor callback first
+    if session_extractor:
+        try:
+            result = session_extractor(args, kwargs)
+            if result:
+                return result
+        except Exception:
+            # Ignore extraction errors
+            pass
+
+    # Fall back to headers
+    if header_session_id:
+        return header_session_id
+
+    return None
+
+
+def _extract_user_id(
+    args: tuple,
+    kwargs: dict,
+    user_extractor: Optional[UserExtractor],
+    header_user_id: Optional[str],
+) -> Optional[str]:
+    """Extract user ID using the extractor callback or headers.
+
+    Priority: user_extractor callback > headers > None
+    """
+    # Try extractor callback first
+    if user_extractor:
+        try:
+            result = user_extractor(args, kwargs)
+            if result:
+                return result
+        except Exception:
+            # Ignore extraction errors
+            pass
+
+    # Fall back to headers
+    if header_user_id:
+        return header_user_id
+
+    return None
+
+
 def _create_span_decorator(
     span_kind: SpanKind,
     name_attr: str,
     args_attr: str,
     result_attr: str,
-) -> Callable[[Optional[str]], Callable[[F], F]]:
+) -> Callable[..., Callable[[F], F]]:
     """Factory for creating MCP-specific decorators."""
-    
-    def decorator(name: Optional[str] = None) -> Callable[[F], F]:
+
+    def decorator(
+        name: Optional[str] = None,
+        *,
+        headers: Optional[Dict[str, str]] = None,
+        user_extractor: Optional[UserExtractor] = None,
+        session_extractor: Optional[SessionExtractor] = None,
+    ) -> Callable[[F], F]:
+        # Pre-extract from headers if provided
+        header_session_id, header_user_id = _extract_from_headers(headers) if headers else (None, None)
+
         def wrapper(func: F) -> F:
             span_name = name or func.__name__
             is_async = inspect.iscoroutinefunction(func)
-            
+
             if is_async:
                 @functools.wraps(func)
                 async def async_wrapped(*args: Any, **kwargs: Any) -> Any:
                     client = _get_client()
                     if client is None:
                         return await func(*args, **kwargs)
-                    
+
                     tracer = client.tracer
                     with tracer.start_as_current_span(
                         name=span_name,
                         kind=trace.SpanKind.SERVER,
                     ) as span:
                         start_time = time.perf_counter()
-                        
+
                         # Set input attributes
                         span.set_attribute(name_attr, span_name)
                         span.set_attribute("heimdall.span_kind", span_kind.value)
-                        
+
+                        # Extract session ID - priority: extractor > headers > client
+                        session_id = _extract_session_id(args, kwargs, session_extractor, header_session_id)
+                        if not session_id:
+                            session_id = client.get_session_id()
+                        if session_id:
+                            span.set_attribute(HeimdallAttributes.HEIMDALL_SESSION_ID, session_id)
+
+                        # Extract user ID - priority: extractor > headers > client > "anonymous"
+                        user_id = _extract_user_id(args, kwargs, user_extractor, header_user_id)
+                        if not user_id:
+                            user_id = client.get_user_id()
+                        span.set_attribute(HeimdallAttributes.HEIMDALL_USER_ID, user_id or "anonymous")
+
                         # Capture arguments
                         try:
                             all_args = _capture_arguments(func, args, kwargs)
                             span.set_attribute(args_attr, _serialize_value(all_args))
                         except Exception:
                             pass
-                        
+
                         try:
                             result = await func(*args, **kwargs)
-                            
+
                             # Set output attributes
                             span.set_attribute(result_attr, _serialize_value(result))
                             span.set_attribute(HeimdallAttributes.STATUS, SpanStatus.OK.value)
                             span.set_status(Status(StatusCode.OK))
-                            
+
                             return result
                         except Exception as e:
                             _record_error(span, e)
@@ -83,7 +218,7 @@ def _create_span_decorator(
                         finally:
                             duration_ms = (time.perf_counter() - start_time) * 1000
                             span.set_attribute(HeimdallAttributes.DURATION_MS, duration_ms)
-                
+
                 return async_wrapped  # type: ignore
             else:
                 @functools.wraps(func)
@@ -91,33 +226,46 @@ def _create_span_decorator(
                     client = _get_client()
                     if client is None:
                         return func(*args, **kwargs)
-                    
+
                     tracer = client.tracer
                     with tracer.start_as_current_span(
                         name=span_name,
                         kind=trace.SpanKind.SERVER,
                     ) as span:
                         start_time = time.perf_counter()
-                        
+
                         # Set input attributes
                         span.set_attribute(name_attr, span_name)
                         span.set_attribute("heimdall.span_kind", span_kind.value)
-                        
+
+                        # Extract session ID - priority: extractor > headers > client
+                        session_id = _extract_session_id(args, kwargs, session_extractor, header_session_id)
+                        if not session_id:
+                            session_id = client.get_session_id()
+                        if session_id:
+                            span.set_attribute(HeimdallAttributes.HEIMDALL_SESSION_ID, session_id)
+
+                        # Extract user ID - priority: extractor > headers > client > "anonymous"
+                        user_id = _extract_user_id(args, kwargs, user_extractor, header_user_id)
+                        if not user_id:
+                            user_id = client.get_user_id()
+                        span.set_attribute(HeimdallAttributes.HEIMDALL_USER_ID, user_id or "anonymous")
+
                         # Capture arguments
                         try:
                             all_args = _capture_arguments(func, args, kwargs)
                             span.set_attribute(args_attr, _serialize_value(all_args))
                         except Exception:
                             pass
-                        
+
                         try:
                             result = func(*args, **kwargs)
-                            
+
                             # Set output attributes
                             span.set_attribute(result_attr, _serialize_value(result))
                             span.set_attribute(HeimdallAttributes.STATUS, SpanStatus.OK.value)
                             span.set_status(Status(StatusCode.OK))
-                            
+
                             return result
                         except Exception as e:
                             _record_error(span, e)
@@ -125,11 +273,11 @@ def _create_span_decorator(
                         finally:
                             duration_ms = (time.perf_counter() - start_time) * 1000
                             span.set_attribute(HeimdallAttributes.DURATION_MS, duration_ms)
-                
+
                 return sync_wrapped  # type: ignore
-        
+
         return wrapper
-    
+
     return decorator
 
 
@@ -160,6 +308,15 @@ trace_mcp_tool = _create_span_decorator(
 trace_mcp_tool.__doc__ = """
 Decorator to trace MCP tool calls.
 
+Args:
+    name: Custom name for the span (defaults to function name)
+    user_extractor: Function to extract user ID from (args, kwargs).
+        Useful for extracting user info from MCP Context.
+        Returns user ID string or None to use default from client.
+    session_extractor: Function to extract session ID from (args, kwargs).
+        Useful for extracting session info from MCP Context.
+        Returns session ID string or None to use default from client.
+
 Example:
     >>> @trace_mcp_tool()
     ... def my_tool(arg1: str, arg2: int) -> str:
@@ -168,6 +325,14 @@ Example:
     >>> @trace_mcp_tool("custom-tool-name")
     ... async def async_tool(data: dict) -> dict:
     ...     return {"processed": data}
+
+    # Extract user and session from MCP Context (first argument)
+    >>> @trace_mcp_tool(
+    ...     user_extractor=lambda args, kwargs: getattr(args[0], 'user_id', None) if args else None,
+    ...     session_extractor=lambda args, kwargs: getattr(args[0], 'session_id', None) if args else None,
+    ... )
+    ... def my_tool_with_ctx(ctx, query: str) -> str:
+    ...     return f"Query: {query}"
 """
 
 trace_mcp_resource = _create_span_decorator(

@@ -143,3 +143,94 @@ class TestTraceMCPTool:
         with pytest.raises(RuntimeError, match="async error"):
             asyncio.run(failing_async_tool())
 
+
+class TestSessionAndUserExtraction:
+    """Tests for session and user extraction in decorators."""
+
+    def test_session_extractor_option(self):
+        """Test sessionExtractor option works."""
+        @trace_mcp_tool(
+            session_extractor=lambda args, kwargs: args[0].get("session_id") if args else None
+        )
+        def my_tool(ctx: dict, query: str) -> dict:
+            return {"query": query, "ctx": ctx}
+
+        result = my_tool({"session_id": "session-123"}, "test")
+        assert result == {"query": "test", "ctx": {"session_id": "session-123"}}
+
+    def test_user_extractor_option(self):
+        """Test userExtractor option works."""
+        @trace_mcp_tool(
+            user_extractor=lambda args, kwargs: args[0].get("user_id") if args else None
+        )
+        def my_tool(ctx: dict, query: str) -> dict:
+            return {"query": query, "ctx": ctx}
+
+        result = my_tool({"user_id": "user-456"}, "test")
+        assert result == {"query": "test", "ctx": {"user_id": "user-456"}}
+
+    def test_headers_option(self):
+        """Test headers option for extraction."""
+        @trace_mcp_tool(
+            headers={
+                "Mcp-Session-Id": "header-session-123",
+                "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJoZWFkZXItdXNlci00NTYifQ.sig",
+            }
+        )
+        def my_tool(query: str) -> dict:
+            return {"query": query}
+
+        result = my_tool("test")
+        assert result == {"query": "test"}
+
+    def test_case_insensitive_headers(self):
+        """Test headers are handled case-insensitively."""
+        @trace_mcp_tool(
+            headers={
+                "mcp-session-id": "lowercase-session",
+                "authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJsb3dlcmNhc2UtdXNlciJ9.sig",
+            }
+        )
+        def my_tool(query: str) -> dict:
+            return {"query": query}
+
+        result = my_tool("test")
+        assert result == {"query": "test"}
+
+    def test_extractors_that_throw_are_handled_gracefully(self):
+        """Test extractors that throw errors are handled gracefully."""
+        @trace_mcp_tool(
+            session_extractor=lambda args, kwargs: (_ for _ in ()).throw(ValueError("Extraction failed")),
+            user_extractor=lambda args, kwargs: (_ for _ in ()).throw(ValueError("Extraction failed")),
+        )
+        def my_tool(query: str) -> dict:
+            return {"query": query}
+
+        # Should not throw, just ignore the extraction error
+        result = my_tool("test")
+        assert result == {"query": "test"}
+
+    def test_extractors_returning_none(self):
+        """Test extractors that return None."""
+        @trace_mcp_tool(
+            session_extractor=lambda args, kwargs: None,
+            user_extractor=lambda args, kwargs: None,
+        )
+        def my_tool(query: str) -> dict:
+            return {"query": query}
+
+        result = my_tool("test")
+        assert result == {"query": "test"}
+
+    def test_async_with_extractors(self):
+        """Test async function with extractors."""
+        @trace_mcp_tool(
+            session_extractor=lambda args, kwargs: args[0].get("session_id") if args else None,
+            user_extractor=lambda args, kwargs: args[0].get("user_id") if args else None,
+        )
+        async def my_async_tool(ctx: dict, query: str) -> dict:
+            return {"query": query, "ctx": ctx}
+
+        import asyncio
+        result = asyncio.run(my_async_tool({"session_id": "session-123", "user_id": "user-456"}, "test"))
+        assert result == {"query": "test", "ctx": {"session_id": "session-123", "user_id": "user-456"}}

@@ -96,6 +96,65 @@ class TestHeimdallConfig:
     def test_metadata_custom(self):
         """Test custom metadata."""
         config = HeimdallConfig(metadata={"custom": "value"})
-        
+
         assert config.metadata == {"custom": "value"}
 
+
+class TestSessionAndUserIdConfiguration:
+    """Tests for session and user ID configuration."""
+
+    def test_session_id_from_environment_variable(self):
+        """Test session ID resolution from environment variable."""
+        with patch.dict(os.environ, {"HEIMDALL_SESSION_ID": "env-session-123"}):
+            config = HeimdallConfig()
+
+            assert config.session_id == "env-session-123"
+
+    def test_user_id_from_environment_variable(self):
+        """Test user ID resolution from environment variable."""
+        with patch.dict(os.environ, {"HEIMDALL_USER_ID": "env-user-456"}):
+            config = HeimdallConfig()
+
+            assert config.user_id == "env-user-456"
+
+    def test_explicit_session_id_overrides_env(self):
+        """Test explicit session ID overrides environment variable."""
+        with patch.dict(os.environ, {"HEIMDALL_SESSION_ID": "env-session"}):
+            config = HeimdallConfig(session_id="explicit-session")
+
+            assert config.session_id == "explicit-session"
+
+    def test_explicit_user_id_overrides_env(self):
+        """Test explicit user ID overrides environment variable."""
+        with patch.dict(os.environ, {"HEIMDALL_USER_ID": "env-user"}):
+            config = HeimdallConfig(user_id="explicit-user")
+
+            assert config.user_id == "explicit-user"
+
+    def test_session_id_none_when_not_set(self):
+        """Test session ID is None when not set."""
+        with patch.dict(os.environ, {}, clear=True):
+            # Need to also patch the conftest env vars
+            with patch.dict(os.environ, {
+                "HEIMDALL_API_KEY": "test-key",
+                "HEIMDALL_ENDPOINT": "https://test.heimdall.dev",
+                "HEIMDALL_SERVICE_NAME": "test-service",
+                "HEIMDALL_ENVIRONMENT": "test",
+            }):
+                config = HeimdallConfig()
+
+                assert config.session_id is None
+
+    def test_user_id_none_when_not_set(self):
+        """Test user ID is None when not set."""
+        with patch.dict(os.environ, {}, clear=True):
+            # Need to also patch the conftest env vars
+            with patch.dict(os.environ, {
+                "HEIMDALL_API_KEY": "test-key",
+                "HEIMDALL_ENDPOINT": "https://test.heimdall.dev",
+                "HEIMDALL_SERVICE_NAME": "test-service",
+                "HEIMDALL_ENVIRONMENT": "test",
+            }):
+                config = HeimdallConfig()
+
+                assert config.user_id is None

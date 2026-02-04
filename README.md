@@ -104,7 +104,7 @@ async def async_search(query: str) -> list:
 | `HEIMDALL_BATCH_SIZE` | Spans per batch | `100` |
 | `HEIMDALL_FLUSH_INTERVAL_MS` | Flush interval (ms) | `5000` |
 | `HEIMDALL_SESSION_ID` | Default session ID | - |
-| `HEIMDALL_USER_ID` | Default user ID | `anonymous` |
+| `HEIMDALL_USER_ID` | Default user ID | - |
 
 ### Local Development
 
@@ -142,17 +142,21 @@ def handle_request():
 #### Option 2: Extractors (Per-tool extraction)
 
 ```python
+from typing import Optional
+
 @trace_mcp_tool(
     session_extractor=lambda args, kwargs: kwargs.get('session_id'),
     user_extractor=lambda args, kwargs: kwargs.get('user_id'),
 )
-def my_tool(query: str, session_id: str = None, user_id: str = None):
+def my_tool(query: str, session_id: Optional[str] = None, user_id: Optional[str] = None):
     return f"Query: {query}"
 ```
 
 #### Resolution Priority
 
-1. Extractor callback → 2. HTTP headers → 3. Client value → 4. Environment variable
+1. Extractor callback → 2. HTTP headers → 3. Client value (initialized from environment variables)
+
+> **Note**: If no user ID is found through any of these methods, `"anonymous"` is used as the default.
 
 ### Custom span names
 
